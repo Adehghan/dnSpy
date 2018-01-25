@@ -1,0 +1,1591 @@
+using ControlCenter;
+using DataManager.Repositories.Service;
+using DataManager.SvcBase;
+using DataManager.SvcFinancial;
+//using DataManager.SvcPaper;
+using DevExpress.Xpf.Core.Commands;
+using EPLIB.ViewModel;
+using ERPCore.Objects;
+using ERPCore.View;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+
+namespace ERPCore.ViewModel
+{
+    class FinancialPaper : EPLIB.ViewModel.Base
+    {
+        #region Properties
+
+        private Repository<View_ERP_AccPurchaseInvoice> Repository = new Repository<View_ERP_AccPurchaseInvoice>();
+        private Repository<ERP_AccPaper> rep = new Repository<ERP_AccPaper>();
+        private Repository<ERP_AccPaper> repPaperItem = new Repository<ERP_AccPaper>();
+        private Repository<ERP_PaperItem> PaperRep = new Repository<ERP_PaperItem>();
+
+        private string formTitle = " Accounting Document ";
+        public string FormTitle
+        {
+            get { return formTitle; }
+            set
+            {
+                formTitle = value;
+                OnPropertyChanged("FormTitle");
+            }
+        }
+
+        string PersinaToday = string.Empty;
+
+
+        bool showLoadingPanel;
+        public bool ShowLoadingPanel
+        {
+            get { return showLoadingPanel; }
+            set
+            {
+                showLoadingPanel = value;
+                OnPropertyChanged("ShowLoadingPanel");
+            }
+        }
+
+        List<DataManager.SvcFinancial.View_ERP_PaperItemReceipt> ReceiptList;
+        List<DataManager.SvcFinancial.View_ERP_PaperItemDeliveryOrder> DeliveryOrderList;
+        DataManager.SvcFinancial.View_ERP_AccPaperItem AccItem { get; set; }
+
+        private string paperDatePersinan = string.Empty;
+        DateTime Today = new DateTime();
+        public string PaperDatePersinan
+        {
+            get { return paperDatePersinan; }
+            set
+            {
+                paperDatePersinan = value;
+                OnPropertyChanged("PaperDatePersinan");
+            }
+        }
+
+        private string paperNo = string.Empty;
+        public string PaperNo
+        {
+            get { return paperNo; }
+            set
+            {
+                paperNo = value;
+                OnPropertyChanged("PaperNo");
+            }
+        }
+        private string remark = string.Empty;
+        public string Remark
+        {
+            get { return remark; }
+            set
+            {
+                remark = value;
+                OnPropertyChanged("Remark");
+            }
+        }
+
+        private bool savedSuccessfully = false;
+        public bool SavedSuccessfully
+        {
+            get { return savedSuccessfully; }
+            set
+            {
+                savedSuccessfully = value;
+                OnPropertyChanged("SavedSuccessfully");
+            }
+        }
+
+        private int sequenceNo;
+        public int SequenceNo
+        {
+            get { return sequenceNo; }
+            set
+            {
+                sequenceNo = value;
+                OnPropertyChanged("SequenceNo");
+            }
+        }
+
+        private DateTime paperDate;
+        public DateTime PaperDate
+        {
+            get { return paperDate; }
+            set
+            {
+                paperDate = value;
+                //if (value != null)
+                //    this.PaperDatePersinan = ERPCore.Objects.DateTimeToString.PersianDate(value);
+                OnPropertyChanged("PaperDate");
+            }
+        }
+
+        private string credoitorStr;
+        public string CredoitorStr
+        {
+            get { return credoitorStr; }
+            set
+            {
+                credoitorStr = value;
+                this.OnPropertyChanged("CredoitorStr");
+            }
+        }
+
+        private string deptorstr;
+        public string Deptorstr
+        {
+            get { return deptorstr; }
+            set
+            {
+                deptorstr = value;
+                this.OnPropertyChanged("Deptorstr");
+            }
+        }
+
+        private List<DataManager.SvcFinancial.View_ERP_AccPaperItem> dataSource;
+        public List<DataManager.SvcFinancial.View_ERP_AccPaperItem> DataSource
+        {
+            get { return dataSource; }
+            set
+            {
+                dataSource = value;
+                OnPropertyChanged("DataSource");
+            }
+        }
+
+        private List<View_ERP_AccAccount> accountDatasource;
+        public List<View_ERP_AccAccount> AccountDatasource
+        {
+            get
+            {
+                return accountDatasource;
+            }
+            set
+            {
+                accountDatasource = value;
+                OnPropertyChanged("AccountDatasource");
+            }
+        }
+
+        private object current;
+        public object Current
+        {
+            get { return current; }
+            set
+            {
+                current = value;
+                OnPropertyChanged("Current");
+            }
+        }
+
+        internal bool changeRowHandle = false;
+        internal int tempRowhandle = -1;
+        private int currentRowHandle;
+        public int CurrentRowHandle
+        {
+            get { return currentRowHandle; }
+            set
+            {
+                currentRowHandle = value;
+                OnPropertyChanged("CurrentRowHandle");
+            }
+        }
+
+        public bool IsInternal = false;
+        private List<View_ERP_PaperItemBI> BIList;
+        private List<View_ERP_PaperItemReturnToStore> ReturnToStoreList;
+        private List<View_ERP_PaperItemAdjusmentPrice> AdjusmentPriceList;
+        private List<View_ERP_PaperItem_PurchaseReturn> PurchaseReturnList;
+        public int PaperType { get; set; }
+
+        #endregion
+
+        #region Command
+
+        DelegateCommand<object> saveCommand;
+        public ICommand SaveCommand
+        {
+            get
+            {
+                if (saveCommand == null)
+                    saveCommand = new DelegateCommand<object>(new Action<object>(Save),
+                         new Func<object, bool>(SaveCanExecute)
+                        );
+                return saveCommand;
+            }
+        }
+
+        public void Save(object p)
+        {
+            this.WaitingMessage = "Saving ....";
+            this.WaitingVisible = true;
+            this.ContentEnabled = false;
+
+            CallBackMethod cb = new CallBackMethod(delegate(object o)
+            {
+                this.WaitingMessage = "Loading ....";
+                string output = (string)o;
+                if (output.StartsWith("ok@"))
+                {
+                    output = output.Substring(3);
+                    this.WaitingVisible = false;
+                    this.ContentEnabled = true;
+                    this.SavedSuccessfully = true;
+                    Widows8MessageBox.Widows8MessageBox msg = new Widows8MessageBox.Widows8MessageBox("Information",
+                                                              "Item(s) saved successfuly." + "\n" + "Do you want to print this?", Widows8MessageBox.Widows8MessageBox.MessageBoxButton.OKCancel,
+                                                              new SolidColorBrush(Colors.White),
+                                                              new SolidColorBrush(Colors.Black), ERPCore.Widows8MessageBox.Widows8MessageBox.MessageBoxImage.Information) { FirstButtonCaption = "Yes", SecondButtonCaption = "No" };
+                    if (msg.ShowDialog() == true)
+                    {
+                        Guid paperId = Guid.Parse(output);
+                        DoPrint(paperId);
+                    }
+                    else
+                    {
+                        CloseCommand.Execute(null);
+                    }
+                }
+
+                else
+                {
+                    if (output == "hanNoInfo")
+                    {
+                        Widows8MessageBox.Widows8MessageBox msg = new Widows8MessageBox.Widows8MessageBox("Warning",
+                                                             " There Is No Valid Information in Item(s).", Widows8MessageBox.Widows8MessageBox.MessageBoxButton.OK,
+                                                             new SolidColorBrush(Colors.White),
+                                                             new SolidColorBrush(Colors.Black), ERPCore.Widows8MessageBox.Widows8MessageBox.MessageBoxImage.Warning) { FirstButtonCaption = "Ok" };
+                        msg.ShowDialog();
+                        this.ContentEnabled = true;
+                        return;
+                    }
+                    else
+                    {
+                        Widows8MessageBox.Widows8MessageBox msg = new Widows8MessageBox.Widows8MessageBox("Error",
+                                                            (string)o, Widows8MessageBox.Widows8MessageBox.MessageBoxButton.OK,
+                                                            new SolidColorBrush(Colors.White),
+                                                            new SolidColorBrush(Colors.Black), ERPCore.Widows8MessageBox.Widows8MessageBox.MessageBoxImage.Error) { FirstButtonCaption = "OK" };
+                        msg.ShowDialog();
+                        this.ContentEnabled = true;
+                    }
+                }
+            });
+
+            this.DoAsynchrone(new Func<object>(DoSave), null, cb);
+        }
+
+        private string DoSave()
+        {
+            var hanNoInfo = DataSource.Where(c => c.fkAccAcount == null).FirstOrDefault();
+            if (hanNoInfo != null)
+                return "hanNoInfo";
+
+            Decimal? nullable1 = this.DataSource.Sum(c => c.DeptorValue);
+            Decimal? nullable2 = DataSource.Sum(c => c.CreditorValue);
+
+            Decimal? nullable3 = nullable1;
+            Decimal? nullable4 = nullable2;
+            if ((nullable3.GetValueOrDefault() != nullable4.GetValueOrDefault() ? 1 : (nullable3.HasValue != nullable4.HasValue ? 1 : 0)) != 0)
+                return "Paper is not Balanced";
+
+            string str1 = this.PaperDate.Day.ToString() + "-" + this.PaperDate.Month.ToString() + "-" + this.PaperDate.Year.ToString();
+            string str2 = DateTimeToString.PersianDate(PaperDate, true);
+
+            string Result = rep.ExcuteServiceOperatorSingle<string>("InsertAccPaper",
+                new ServiceOperatorParameter() { Name = "pkSender", Value = (ControlCenter.Setting.LoggedUser.pkUser.ToString()) },
+                new ServiceOperatorParameter() { Name = "SequenceNo", Value = this.SequenceNo },
+                new ServiceOperatorParameter() { Name = "PaperDate", Value = str1 },
+                new ServiceOperatorParameter() { Name = "No", Value = 1 },
+                new ServiceOperatorParameter() { Name = "year", Value = ControlCenter.Setting.Year },
+                new ServiceOperatorParameter() { Name = "Description", Value = Remark },
+                new ServiceOperatorParameter() { Name = "persianDate", Value = str2 },
+                new ServiceOperatorParameter() { Name = "PaperType", Value = PaperType });
+
+            if (Result == null)
+                return "Error in saving";
+            if (!Result.StartsWith("ok@"))
+                return "";
+            string str5 = Result.Substring(3);
+            int count = DataSource.Count;
+            int num1 = 0;
+            int num2 = 1;
+
+            foreach (var item in DataSource)
+            {
+                string price = "";
+
+                if (item.Price == null && item.PaperType != 4)
+                    price = "-1";
+                else
+                    price = item.Price.Value.ToString("f2");
+
+                string str7 = rep.ExcuteServiceOperatorSingle<string>("InsertAccPaperItem",
+                    new ServiceOperatorParameter() { Name = "pkAccPaper", Value = str5 },
+                    new ServiceOperatorParameter() { Name = "ReceiptPaperDate", Value = str2 },
+                    new ServiceOperatorParameter() { Name = "pkRelatedPaper", Value = item.fkRelatedPaper.ToString() },
+                    new ServiceOperatorParameter() { Name = "FollowNo", Value = item.FollowUpNo.ToString() },
+                    new ServiceOperatorParameter() { Name = "fkAccAcount", Value = item.fkAccAcount.ToString() },
+                    new ServiceOperatorParameter() { Name = "Value", Value = item.Value.Value.ToString("f0") },
+                    new ServiceOperatorParameter() { Name = "ItemTitle", Value = item.Title },
+                    new ServiceOperatorParameter() { Name = "ItemNo", Value = item.ItemNo },
+                    new ServiceOperatorParameter() { Name = "ExchangeRate", Value = (item.ExchangeRate != null) ? item.ExchangeRate.ToString() : string.Empty },
+                    new ServiceOperatorParameter() { Name = "fkCurrency", Value = (item.fkOptionCurrency != null) ? item.fkOptionCurrency : -1 },
+                    new ServiceOperatorParameter() { Name = "Price", Value = price });
+
+                if (str7 == "ok")
+                    num1 += 1;
+                num2 += 1;
+            }
+
+            if (num1 == count)
+            {
+                string str8 = rep.ExcuteServiceOperatorSingle<string>("CommitInsertAccPaper",
+                    new ServiceOperatorParameter() { Name = "pkAccPaper", Value = str5 },
+                    new ServiceOperatorParameter() { Name = "RollBack", Value = 0 });
+
+            }
+
+            string str9 = rep.ExcuteServiceOperatorSingle<string>("CommitInsertAccPaper",
+                    new ServiceOperatorParameter() { Name = "pkAccPaper", Value = str5 },
+                    new ServiceOperatorParameter() { Name = "RollBack", Value = 1 });
+
+            return str9;
+        }
+
+        //string DoSave()
+        //{
+        //    var hanNoInfo = DataSource.Where(c => c.fkAccAcount == null).FirstOrDefault();
+        //    if (hanNoInfo != null)
+        //        return "hanNoInfo";
+
+        //    string keys = string.Empty;
+        //    string pdate = this.PaperDate.Day.ToString() + "-" + this.PaperDate.Month.ToString() + "-" + this.PaperDate.Year.ToString();
+
+        //    foreach (var item in DataSource)
+        //    {
+        //        keys += item.fkRelatedPaperItem.ToString();
+        //        keys += "*" + item.fkAccAcount.ToString();
+        //        keys += "*" + item.Title;
+        //        keys += "*" + item.Value.ToString();
+        //        keys += "*" + item.FollowUpNo;
+        //        keys += "*" + item.FollowUpPersianDate + "*";
+        //        keys += "@";
+        //    }
+        //    if (keys.Length > 0)
+        //        keys = keys.Remove(keys.Length - 1, 1);
+        //    string persinDate = ERPCore.Objects.DateTimeToString.PersianDate(this.PaperDate);
+
+        //    var rep = new DataManager.Repositories.Service.Repository<DataManager.SvcFinancial.ERP_AccAccounts>();
+        //    string Result = rep.ExcuteServiceOperatorSingle<string>("CloseFinancialPaper",
+        //                  new DataManager.Repositories.Service.ServiceOperatorParameter() { Name = "Keys", Value = (keys) },
+        //                          new DataManager.Repositories.Service.ServiceOperatorParameter() { Name = "pkSender", Value = (ControlCenter.Setting.LoggedUser.pkUser.ToString()) },
+        //                           new DataManager.Repositories.Service.ServiceOperatorParameter() { Name = "SequenceNo", Value = (this.SequenceNo) },
+        //                            new DataManager.Repositories.Service.ServiceOperatorParameter() { Name = "PaperDate", Value = (pdate) },
+        //                               new DataManager.Repositories.Service.ServiceOperatorParameter() { Name = "No", Value = (1) },
+        //                                  new DataManager.Repositories.Service.ServiceOperatorParameter() { Name = "year", Value = (ControlCenter.Setting.Year == null ? 2014 : ControlCenter.Setting.Year) },
+        //                                         new DataManager.Repositories.Service.ServiceOperatorParameter() { Name = "Description", Value = (Remark) },
+        //                                         new DataManager.Repositories.Service.ServiceOperatorParameter() { Name = "persianDate", Value = (persinDate) }
+        //                                         );
+
+        //    return Result;
+
+        //}
+
+        public bool SaveCanExecute(object p)
+        {
+            return true;
+        }
+
+        DelegateCommand<object> printCommand;
+        public ICommand PrintCommand
+        {
+            get
+            {
+                if (printCommand == null)
+                    printCommand = new DelegateCommand<object>(new Action<object>(Print),
+                        new Func<object, bool>(PrintCanExecute)
+                        );
+                return printCommand;
+            }
+        }
+
+        public void Print(object p)
+        {
+            DoPrint(Guid.Empty);
+        }
+
+        void DoPrint(Guid PaperId)
+        {
+            var ds = Repository.GetAll<DataManager.SvcFinancial.View_ERP_AccPaperItem>().Where(c => c.fkAccPaper == PaperId).ToList();
+            var rowHandle = this.CurrentRowHandle;
+            var element = new View.RequestReport(ds) { Name = "RequestReport", Visibility = Visibility.Hidden, Opacity = 0 };
+            (element.DataContext as ViewModel.RequestReport).OnBackClicked += (object sender, EventArgs e) =>
+            {
+                CloseCommand.Execute(null);
+            };
+            this.DoNew(element, "RequestReport", (this.View as View.FinancialPape).Container, (this.View as View.FinancialPape).MainContainer);
+
+        }
+        public bool PrintCanExecute(object p)
+        {
+            return true;
+        }
+
+        DelegateCommand<object> editCommand;
+        public ICommand EditCommand
+        {
+            get
+            {
+                if (editCommand == null)
+                    editCommand = new DelegateCommand<object>(new Action<object>(Edit),
+                        new Func<object, bool>(EditCanExecute)
+                        );
+                return editCommand;
+            }
+        }
+        public void Edit(object p)
+        {
+
+        }
+        public bool EditCanExecute(object p)
+        {
+            return true;
+        }
+
+        DelegateCommand<object> deleteCommand;
+        public ICommand DeleteCommand
+        {
+            get
+            {
+                if (deleteCommand == null)
+                    deleteCommand = new DelegateCommand<object>(new Action<object>(Delete),
+                        new Func<object, bool>(DeleteCanExecute)
+                        );
+                return deleteCommand;
+            }
+        }
+        public void Delete(object p)
+        {
+
+        }
+        DelegateCommand<object> closeCommand;
+        public ICommand CloseCommand
+        {
+            get
+            {
+                if (closeCommand == null)
+                    closeCommand = new DelegateCommand<object>(new Action<object>(Close),
+                        new Func<object, bool>(CloseCanExecute)
+                       );
+                return closeCommand;
+            }
+        }
+        public void Close(object p)
+        {
+            if (OnBackClicked != null)
+                OnBackClicked(this, null);
+        }
+        public bool CloseCanExecute(object p)
+        {
+            return true;
+        }
+
+        public bool DeleteCanExecute(object p)
+        {
+            return false;
+        }
+
+        #endregion
+
+        #region Constructors
+
+        public FinancialPaper(List<DataManager.SvcFinancial.View_ERP_PaperItemReceipt> Receipts)
+        {
+            this.WaitingVisible = true;
+            this.ContentVisible = false;
+            this.ContentEnabled = false;
+            this.ReceiptList = Receipts;
+            this.PaperDate = ERPCore.Objects.DateTimeToString.GetDate();
+            Today = this.PaperDate;
+            PersinaToday = ERPCore.Objects.DateTimeToString.PersianDate(Today, true);
+
+            this.WaitingVisible = false;
+            this.ContentVisible = true;
+            this.ContentEnabled = true;
+
+            CallBackMethod cb = new CallBackMethod(delegate(object o)
+            {
+                //this.ShowLoadingPanel = false;
+            });
+            this.DoAsynchrone(new Func<object>(BindReceipt), null, cb);
+            //this.ShowLoadingPanel = true;
+        }
+
+        public FinancialPaper(List<DataManager.SvcFinancial.View_ERP_PaperItemDeliveryOrder> DeliveryOrders)
+        {
+            this.WaitingVisible = true;
+            this.ContentVisible = false;
+            this.ContentEnabled = false;
+            this.DeliveryOrderList = DeliveryOrders;
+            this.PaperDate = ERPCore.Objects.DateTimeToString.GetDate();
+            Today = this.PaperDate;
+            PersinaToday = ERPCore.Objects.DateTimeToString.PersianDate(Today, true);
+
+            this.WaitingVisible = false;
+            this.ContentVisible = true;
+            this.ContentEnabled = true;
+
+            CallBackMethod cb = new CallBackMethod(delegate(object o)
+            {
+                //this.ShowLoadingPanel = false;
+            });
+            this.DoAsynchrone(new Func<object>(BindDeliveryOrder), null, cb);
+            //this.ShowLoadingPanel = true;
+        }
+
+        public FinancialPaper(List<View_ERP_PaperItemBI> Receipts)
+        {
+            this.WaitingVisible = true;
+            this.ContentVisible = false;
+            this.ContentEnabled = false;
+            this.BIList = Receipts;
+            this.PaperType = 14;
+            this.WaitingVisible = false;
+            this.ContentVisible = true;
+            this.ContentEnabled = true;
+            this.DoAsynchrone((Delegate)new Func<object>(this.BindBI), (object[])null, (Base.CallBackMethod)(o => { }));
+            this.AccountDatasource = Repository.GetAll<View_ERP_AccAccount>().ToList<View_ERP_AccAccount>();
+            this.PaperDate = Receipts.Max(q => q.RecieptPaperDate).Value;
+            this.Today = this.PaperDate;
+            this.PersinaToday = DateTimeToString.PersianDate(this.Today, true);
+        }
+
+        public FinancialPaper(List<View_ERP_PaperItemReceipt> Receipts, bool IsPay = false, bool isInternal = false)
+        {
+            this.WaitingVisible = true;
+            this.ContentVisible = false;
+            this.ContentEnabled = false;
+            this.IsInternal = isInternal;
+            this.ReceiptList = Receipts;
+            this.PaperDate = DateTimeToString.GetDate();
+            this.Today = this.PaperDate;
+            this.PersinaToday = DateTimeToString.PersianDate(this.Today, true);
+            this.PaperType = 1;
+            this.WaitingVisible = false;
+            this.ContentVisible = true;
+            this.ContentEnabled = true;
+            if (!IsPay)
+            {
+                this.DoAsynchrone((Delegate)new Func<object>(this.BindReceipt), (object[])null, (Base.CallBackMethod)(o => { }));
+                this.PaperDate = Receipts.Max(q => q.RecieptPaperDate).Value;
+                this.Today = this.PaperDate;
+                this.PersinaToday = DateTimeToString.PersianDate(this.Today, true);
+            }
+            else
+                this.DoAsynchrone((Delegate)new Func<object>(this.BindPayment), (object[])null, (Base.CallBackMethod)(o => { }));
+            this.AccountDatasource = this.Repository.GetAll<View_ERP_AccAccount>().ToList<View_ERP_AccAccount>();
+        }
+
+        public FinancialPaper(List<View_ERP_PaperItemDeliveryOrder> DeliveryOrders, string PaperType)
+        {
+            this.WaitingVisible = true;
+            this.ContentVisible = false;
+            this.ContentEnabled = false;
+            this.DeliveryOrderList = DeliveryOrders;
+            this.PaperDate = ((IEnumerable<View_ERP_PaperItemDeliveryOrder>)DeliveryOrders).Max<View_ERP_PaperItemDeliveryOrder, DateTime?>((Func<View_ERP_PaperItemDeliveryOrder, DateTime?>)(c => c.get_PaperDate())).Value;
+            this.Today = this.PaperDate;
+            this.PersinaToday = DateTimeToString.PersianDate(this.Today, true);
+            switch (PaperType)
+            {
+                case "Consume":
+                    this.PaperType = 50;
+                    break;
+                case "External":
+                    this.PaperType = 4;
+                    break;
+                case "Fixed Assets":
+                    this.PaperType = 53;
+                    break;
+                case "Inspect":
+                    this.PaperType = 5;
+                    break;
+                case "Store To Store":
+                    this.PaperType = 52;
+                    break;
+            }
+            this.WaitingVisible = false;
+            this.ContentVisible = true;
+            this.ContentEnabled = true;
+            this.DoAsynchrone((Delegate)new Func<object>(this.BindDeliveryOrder), (object[])null, (Base.CallBackMethod)(o => { }));
+        }
+
+        public FinancialPaper(List<View_ERP_PaperItemReturnToStore> ReturnToStores)
+        {
+            this.WaitingVisible = true;
+            this.ContentVisible = false;
+            this.ContentEnabled = false;
+            this.ReturnToStoreList = ReturnToStores;
+            this.PaperDate = ((IEnumerable<View_ERP_PaperItemReturnToStore>)ReturnToStores).Max<View_ERP_PaperItemReturnToStore, DateTime?>((Func<View_ERP_PaperItemReturnToStore, DateTime?>)(c => c.get_PaperDate())).Value;
+            this.Today = this.PaperDate;
+            this.PersinaToday = DateTimeToString.PersianDate(this.Today, true);
+            this.WaitingVisible = false;
+            this.ContentVisible = true;
+            this.ContentEnabled = true;
+            this.PaperType = 206;
+            this.DoAsynchrone((Delegate)new Func<object>(this.BindReturnToStore), (object[])null, (Base.CallBackMethod)(o => { }));
+        }
+
+        public FinancialPaper(List<View_ERP_PaperItemAdjusmentPrice> Adjusments, int papertype, bool IsPay = false)
+        {
+            this.WaitingVisible = true;
+            this.ContentVisible = false;
+            this.ContentEnabled = false;
+            this.AdjusmentPriceList = Adjusments;
+            this.PaperDate = DateTimeToString.GetDate();
+            this.Today = this.PaperDate;
+            this.PersinaToday = DateTimeToString.PersianDate(this.Today, true);
+            this.PaperType = papertype;
+            this.WaitingVisible = false;
+            this.ContentVisible = true;
+            this.ContentEnabled = true;
+            if (papertype == 202)
+            {
+                if (IsPay)
+                    this.DoAsynchrone((Delegate)new Func<object>(this.BindPaymentAdjusmentIncrement), (object[])null, (Base.CallBackMethod)(o => { }));
+                else
+                    this.DoAsynchrone((Delegate)new Func<object>(this.BindAdjusmentIncrement), (object[])null, (Base.CallBackMethod)(o => { }));
+            }
+            if (papertype == 204)
+            {
+                if (IsPay)
+                    this.DoAsynchrone((Delegate)new Func<object>(this.BindPaymentAdjusmentDecrement), (object[])null, (Base.CallBackMethod)(o => { }));
+                else
+                    this.DoAsynchrone((Delegate)new Func<object>(this.BindAdjusmentDecremnt), (object[])null, (Base.CallBackMethod)(o => { }));
+            }
+            if (papertype == 201)
+                this.DoAsynchrone((Delegate)new Func<object>(this.BindConsumeDoAdjustment), (object[])null, (Base.CallBackMethod)(o => { }));
+            if (papertype == 203)
+                this.DoAsynchrone((Delegate)new Func<object>(this.BindConsumeDoAdjustment), (object[])null, (Base.CallBackMethod)(o => { }));
+            this.AccountDatasource = ((IEnumerable<View_ERP_AccAccount>)((DataManager.Repositories.Service.Repository)this.Repository).GetAll<View_ERP_AccAccount>((Func<M0, bool>)null)).ToList<View_ERP_AccAccount>();
+        }
+
+        public FinancialPaper(List<View_ERP_PaperItem_PurchaseReturn> purchaseReturnList)
+        {
+            this.WaitingVisible = true;
+            this.ContentVisible = false;
+            this.ContentEnabled = false;
+            this.PaperType = 62;
+            this.PurchaseReturnList = purchaseReturnList;
+            this.WaitingVisible = false;
+            this.ContentVisible = true;
+            this.ContentEnabled = true;
+            this.PaperDate = ((IEnumerable<View_ERP_PaperItem_PurchaseReturn>)purchaseReturnList).Max<View_ERP_PaperItem_PurchaseReturn, DateTime?>((Func<View_ERP_PaperItem_PurchaseReturn, DateTime?>)(c => c.get_PaperDate())).Value;
+            this.Today = this.PaperDate;
+            this.PersinaToday = DateTimeToString.PersianDate(this.Today, true);
+            this.DoAsynchrone((Delegate)new Func<object>(this.BindPurchaseReturns), (object[])null, (Base.CallBackMethod)(o => { }));
+        }
+
+        #endregion
+
+        #region Methods
+
+        public object BindBI()
+        {
+            string key = string.Empty;
+
+            foreach (var item in BIList)
+            {
+                key = key + item.PaperItemId.ToString() + "*";
+            }
+
+            if (key.Length > 0)
+                key = key.Remove(key.Length - 1, 1);
+
+            //string str2 = rep.ExcuteServiceOperatorSingle<string>("GetPurchaseInvoiceItems",
+            //   new ServiceOperatorParameter() { Name = "Keys", Value = key });
+
+            IQueryable<View_ERP_AccPurchaseInvoice> ds = Repository.Context.CreateQuery<View_ERP_AccPurchaseInvoice>("GetPurchaseInvoiceItems")
+                .AddQueryOption("Keys", key);
+
+            List<View_ERP_AccPurchaseInvoice> list = ds.ToList();
+
+            int num1 = 1;
+            this.DataSource = new List<View_ERP_AccPaperItem>();
+            string str3 = ") بابت رسید شماره";
+            string str4 = " مورخ (";
+            string str5 = ") مربوط به خرید قطعه ";
+            string str6 = ") از (";
+
+            foreach (var item in list)
+            {
+                string str7 = "(l ";
+                DateTime? recieptPaperDate = item.RecieptPaperDate;
+                string str8 = DateTimeToString.PersianDate(recieptPaperDate.Value, true);
+                string str9 = " l)";
+                string str10 = str7 + str8 + str9;
+                string str11 = 8235.ToString() + "(" + item.CompanyName + str6 + item.PartType + str5 + str10 + str4 + item.RecieptFullNo + str3;
+                string[] strArray1 = new string[8];
+                strArray1[0] = "According To Receipt No : ";
+                strArray1[1] = item.RecieptFullNo;
+                strArray1[2] = " Dated : ";
+                string[] strArray2 = strArray1;
+                int index2 = 3;
+                recieptPaperDate = item.RecieptPaperDate;
+                string str12 = recieptPaperDate.Value.ToString("yyyy/mm/dd");
+                strArray2[index2] = str12;
+                strArray1[4] = " Related To Purchase Of ";
+                strArray1[5] = item.PartType;
+                strArray1[6] = " From ";
+                strArray1[7] = item.Creditor;
+                string.Concat(strArray1);
+
+                AccItem = new View_ERP_AccPaperItem();
+                AccItem.pkAccPaperItem = (Guid.NewGuid());
+                AccItem.No = (num1);
+                AccItem.ExchangeRate = (item.ExchangeRate);
+                AccItem.AccountLevel1 = (item.DeptorAccountLevel1);
+                AccItem.AccountLevel2 = (item.DeptorAccountLevel2);
+                AccItem.AccountLevel3 = (item.DeptorAccountLevel3);
+                AccItem.AccountLevel4 = (item.DeptorAccountLevel4);
+                AccItem.FullCode = (item.DeptorFullCode);
+                AccItem.CustomerCode = (item.DeptorCustomerCode);
+                AccItem.FollowUpNo = (item.No.ToString() + "-" + num1.ToString());
+                AccItem.FollowUpDate = (new DateTime?(this.Today));
+                AccItem.FollowUpPersianDate = (this.PersinaToday);
+
+                View_ERP_AccPaperItem accItem1 = this.AccItem;
+                Decimal? nullable1 = item.Value;
+                Decimal? nullable2;
+
+                if (nullable1 == null) //(!nullable1.HasValue)
+                    nullable2 = new Decimal?();
+                else
+                    nullable2 = (-nullable1);
+
+                accItem1.Value = nullable2;
+                AccItem.Currency = item.Currency;
+                AccItem.DeptorValue = item.Value;
+                AccItem.AcountTitle = item.Deptor;
+
+                nullable1 = item.Price;
+                if (nullable1.HasValue)
+                {
+                    nullable1 = item.ExchangeRate;
+                    if (nullable1 != null)
+                    {
+                        View_ERP_AccPaperItem accItem2 = this.AccItem;
+                        nullable1 = item.Value;
+                        nullable2 = item.ExchangeRate;
+                        Decimal? nullable4 = nullable1.HasValue & nullable2.HasValue ? new Decimal?(nullable1.GetValueOrDefault() / nullable2.GetValueOrDefault()) : new Decimal?();
+                        accItem2.Price = nullable4;
+                    }
+                }
+
+                AccItem.Title = str11;
+                AccItem.fkAccAcount = item.DeptorId;
+                AccItem.fkRelatedPaper = (new Guid?(item.PaperItemId));
+                DataSource.Add(AccItem);
+                num1 += 1;
+                AccItem = new View_ERP_AccPaperItem();
+                AccItem.pkAccPaperItem = (Guid.NewGuid());
+                AccItem.No = (num1);
+                AccItem.ExchangeRate = item.ExchangeRate;
+                AccItem.AccountLevel1 = item.CreditorAccountLevel1;
+                AccItem.AccountLevel2 = item.CreditorAccountLevel2;
+                AccItem.AccountLevel3 = item.CreditorAccountLevel3;
+                AccItem.AccountLevel4 = item.CreditorAccountLevel4;
+                AccItem.FullCode = item.CreditorFullCode;
+                AccItem.CustomerCode = item.CreditorCustomerCode;
+                AccItem.FollowUpNo = item.No.ToString() + "-" + num1.ToString();
+                AccItem.FollowUpDate = (new DateTime?(this.Today));
+                AccItem.Currency = item.Currency;
+                AccItem.FollowUpPersianDate = (this.PersinaToday);
+                AccItem.Value = item.Value;
+                AccItem.CreditorValue = item.Value;
+                AccItem.AcountTitle = item.Creditor;
+                nullable1 = item.Price;
+                if (nullable1 != null)
+                {
+                    nullable1 = item.ExchangeRate;
+                    if (nullable1 != null)
+                    {
+                        View_ERP_AccPaperItem accItem2 = this.AccItem;
+                        nullable1 = item.Value;
+                        nullable2 = item.ExchangeRate;
+                        Decimal? nullable4 = nullable1.HasValue & nullable2.HasValue ? new Decimal?(nullable1.GetValueOrDefault() / nullable2.GetValueOrDefault()) : new Decimal?();
+                        accItem2.Price = nullable4;
+                    }
+                }
+                AccItem.Title = str11;
+                AccItem.fkAccAcount = item.CreditorId;
+                AccItem.fkRelatedPaper = (new Guid?(item.PaperItemId));
+                DataSource.Add(AccItem);
+                ++num1;
+            }
+
+            Decimal num2 = DataSource.Sum(q => q.DeptorValue).Value;
+            Deptorstr = num2.ToString("n0");
+            num2 = DataSource.Sum(q => q.CreditorValue).Value;
+            CredoitorStr = num2.ToString("n0");
+            return null;
+        }
+
+        public object BindReceipt()
+        {
+            string keys = string.Empty;
+            foreach (var item in ReceiptList)
+            {
+                keys += item.PaperItemId.ToString() + "*";
+            }
+            if (keys.Length > 0)
+                keys = keys.Remove(keys.Length - 1, 1);
+
+            var Result = Repository.ExcuteServiceOperator<DataManager.SvcFinancial.View_ERP_AccPurchaseInvoice>("GetPurchaseInvoiceItems",
+                               new DataManager.Repositories.Service.ServiceOperatorParameter() { Name = "Keys", Value = (keys) }
+                                );
+            List<DataManager.SvcFinancial.View_ERP_AccPurchaseInvoice> itemsList = Result.ToList();
+
+
+            int ItemNo = 1;
+            //Deptor  -
+            //creditor +
+
+            this.DataSource = new List<DataManager.SvcFinancial.View_ERP_AccPaperItem>();
+            string sec1 = ") بابت رسید شماره";
+            string sec2 = " مورخ (";
+            string sec3 = ") مربوط به خرید قطعه ";
+            string sec4 = ") از (";
+            const char RightToLeftEmbedding = (char)0x202B;
+            const char mG = (char)0XFE63;
+
+            foreach (var item in itemsList)
+            {
+                //string hex = "2003";
+                //hex=hex.Substring (2);
+                //int num =int.Parse(hex,System .Globalization.NumberStyles.AllowHexSpecifier );
+                string pDate = "(l " + ERPCore.Objects.DateTimeToString.PersianDate((DateTime)item.RecieptPaperDate) + " l)";
+                string title = RightToLeftEmbedding + "(" + item.CompanyName + sec4 + item.PartType + sec3 + pDate + sec2 + item.RecieptFullNo + sec1;
+
+                string LTitle = "According To Receipt No : " + item.RecieptFullNo + " Dated : " + item.RecieptPaperDate.Value.ToString("yyyy/mm/dd") + " Related To Purchase Of " + item.PartType + " From " + item.Creditor;
+                AccItem = new DataManager.SvcFinancial.View_ERP_AccPaperItem();
+                AccItem.No = ItemNo;
+                AccItem.ExchangeRate = item.ExchangeRate;
+                AccItem.AccountLevel1 = item.DeptorAccountLevel1;
+                AccItem.AccountLevel2 = item.DeptorAccountLevel2;
+                AccItem.AccountLevel3 = item.DeptorAccountLevel3;
+                AccItem.AccountLevel4 = item.DeptorAccountLevel4;
+                AccItem.FullCode = item.DeptorFullCode;
+                AccItem.CustomerCode = item.DeptorCustomerCode;
+                AccItem.FollowUpNo = item.No.ToString() + "-" + ItemNo.ToString();
+                AccItem.FollowUpDate = Today;
+                AccItem.FollowUpPersianDate = PersinaToday;
+                AccItem.Value = -item.Value;
+                AccItem.Currency = item.Currency;
+                AccItem.DeptorValue = item.Value;
+                AccItem.AcountTitle = item.Deptor;
+                if (item.Price != null)
+                {
+                    if (item.ExchangeRate != null)
+                        AccItem.Price = item.Value / item.ExchangeRate;
+                }
+                AccItem.Title = title;
+                AccItem.fkAccAcount = item.DeptorId;
+                AccItem.fkRelatedPaperItem = item.PaperItemId;
+                //AccItem.ParrentFullCode = RightToLeftEmbedding + item.DeptorAccountLevel1 + "/" + item.DeptorAccountLevel2 + "/" + item.DeptorAccountLevel3 + "/" + item.DeptorAccountLevel4;
+                this.DataSource.Add(AccItem);
+                ItemNo++;
+
+                AccItem = new DataManager.SvcFinancial.View_ERP_AccPaperItem();
+                AccItem.No = ItemNo;
+                AccItem.ExchangeRate = item.ExchangeRate;
+                AccItem.AccountLevel1 = item.CreditorAccountLevel1;
+                AccItem.AccountLevel2 = item.CreditorAccountLevel2;
+                AccItem.AccountLevel3 = item.CreditorAccountLevel3;
+                AccItem.AccountLevel4 = item.CreditorAccountLevel4;
+                AccItem.FullCode = item.CreditorFullCode;
+                AccItem.CustomerCode = item.CreditorCustomerCode;
+                AccItem.FollowUpNo = item.No.ToString() + "-" + ItemNo.ToString();
+                AccItem.FollowUpDate = Today;
+                AccItem.Currency = item.Currency;
+                AccItem.FollowUpPersianDate = PersinaToday;
+                AccItem.Value = item.Value;
+                AccItem.CreditorValue = item.Value;
+                AccItem.AcountTitle = item.Creditor;
+                if (item.Price != null)
+                {
+                    if (item.ExchangeRate != null)
+                        AccItem.Price = item.Value / item.ExchangeRate;
+                }
+                AccItem.Title = title;
+                AccItem.fkAccAcount = item.CreditorId;
+                AccItem.fkRelatedPaperItem = item.PaperItemId;
+                //AccItem.ParrentFullCode = RightToLeftEmbedding + item.CreditorAccountLevel1 + "/" + item.CreditorAccountLevel2 + "/" + item.CreditorAccountLevel3 + "/" + item.CreditorAccountLevel4;
+                this.DataSource.Add(AccItem);
+                ItemNo++;
+
+            }
+
+            return null;
+        }
+
+        public object BindDeliveryOrder()
+        {
+            string keys = string.Empty;
+
+            foreach (var item in DeliveryOrderList)
+            {
+                keys += item.PaperItemId.ToString() + "*";
+            }
+            if (keys.Length > 0)
+                keys = keys.Remove(keys.Length - 1, 1);
+
+            var Result = Repository.ExcuteServiceOperator<DataManager.SvcFinancial.View_ERP_AccSalesInvoice>("GetSalesInvoiceItems",
+                               new DataManager.Repositories.Service.ServiceOperatorParameter() { Name = "Keys", Value = (keys) }
+                                );
+            List<DataManager.SvcFinancial.View_ERP_AccSalesInvoice> itemsList = Result.ToList();
+
+
+            int ItemNo = 1;
+            //Deptor  -
+            //creditor +
+
+            this.DataSource = new List<DataManager.SvcFinancial.View_ERP_AccPaperItem>();
+            string sec1 = " بابت حواله شماره";
+            string sec2 = " مورخ  ";
+            string sec3 = "  مربوط به  واگذاری قطعه ";
+            string sec4 = "  به  ";
+            string lrm = ((char)0x200E).ToString();
+
+            foreach (var item in itemsList)
+            {
+                string pDate = ERPCore.Objects.DateTimeToString.PersianDate((DateTime)item.PaperDate);
+                pDate = "( " + pDate + " ) مورخه" + item.FullNo;
+
+                StringBuilder sb = new StringBuilder();
+                //sb.Append(lrm);
+                sb.Append(item.DeptorAccountLevel4);
+
+                sb.Append(sec4);
+                //sb.Append(lrm);
+                sb.Append(item.PartType);
+                //sb.Append(lrm);
+                sb.Append(sec3);
+                //sb.Append(lrm);
+                sb.Append(pDate);
+                //sb.Append(lrm);
+                //sb.Append(sec2);
+                //sb.Append(lrm);
+                //sb.Append(item.FullNo);
+                //sb.Append(lrm);
+                sb.Append(sec1);
+
+
+
+
+
+
+                var dddd = sb.ToString();
+                string title = lrm + item.DeptorAccountLevel4 + lrm + sec4 + lrm + item.PartType + lrm + sec3 + lrm + item.FullNo + lrm + sec1 + lrm;
+                //string title = "(" +  item.DeptorAccountLevel4 +  sec4 +  item.PartType +  sec3 + pDate + sec2 +  item.FullNo +  sec1 +lrm  ;
+
+                AccItem = new DataManager.SvcFinancial.View_ERP_AccPaperItem();
+                AccItem.No = ItemNo;
+                AccItem.ExchangeRate = item.ExchangeRate;
+                AccItem.AccountLevel1 = item.DeptorAccountLevel1;
+                AccItem.AccountLevel2 = item.DeptorAccountLevel2;
+                AccItem.AccountLevel3 = item.DeptorAccountLevel3;
+                AccItem.AccountLevel4 = item.DeptorAccountLevel4;
+                AccItem.FullCode = item.DeptorFullCode;
+                AccItem.CustomerCode = item.DeptorCustomerCode;
+                AccItem.FollowUpNo = item.No.ToString() + "-" + ItemNo.ToString();
+                AccItem.FollowUpDate = Today;
+                AccItem.FollowUpPersianDate = PersinaToday;
+                AccItem.Value = -item.Value;
+                AccItem.DeptorValue = item.Value;
+                AccItem.AcountTitle = item.Deptor;
+                if (item.ExchangeRate != null)
+                    AccItem.Price = item.Value * item.ExchangeRate;
+                AccItem.Title = title;
+                AccItem.fkAccAcount = item.DeptorId;
+                AccItem.fkRelatedPaperItem = item.PaperItemId;
+                //AccItem.ParrentFullCode = RightToLeftEmbedding + item.DeptorAccountLevel1 + "/" + item.DeptorAccountLevel2 + "/" + item.DeptorAccountLevel3 + "/" + item.DeptorAccountLevel4;
+                this.DataSource.Add(AccItem);
+                ItemNo++;
+
+                AccItem = new DataManager.SvcFinancial.View_ERP_AccPaperItem();
+                AccItem.No = ItemNo;
+                AccItem.ExchangeRate = item.ExchangeRate;
+                AccItem.AccountLevel1 = item.CreditorAccountLevel1;
+                AccItem.AccountLevel2 = item.CreditorAccountLevel2;
+                AccItem.AccountLevel3 = item.CreditorAccountLevel3;
+                AccItem.AccountLevel4 = item.CreditorAccountLevel4;
+                AccItem.FullCode = item.CreditorFullCode;
+                AccItem.CustomerCode = item.CreditorCustomerCode;
+                AccItem.FollowUpNo = item.No.ToString() + "-" + ItemNo.ToString();
+                AccItem.FollowUpDate = Today;
+
+                AccItem.FollowUpPersianDate = PersinaToday;
+                AccItem.Value = item.Value;
+                AccItem.CreditorValue = item.Value;
+                AccItem.AcountTitle = item.Creditor;
+                if (item.ExchangeRate != null)
+                    AccItem.Price = item.Value * item.ExchangeRate;
+                AccItem.Title = title;
+                AccItem.fkAccAcount = item.CreditorId;
+                AccItem.fkRelatedPaperItem = item.PaperItemId;
+                //AccItem.ParrentFullCode = RightToLeftEmbedding + item.CreditorAccountLevel1 + "/" + item.CreditorAccountLevel2 + "/" + item.CreditorAccountLevel3 + "/" + item.CreditorAccountLevel4;
+                this.DataSource.Add(AccItem);
+                ItemNo++;
+
+            }
+
+            return null;
+        }
+
+        public object BindPayment()
+    {
+      this.PaperType = 2;
+      string str1 = string.Empty;
+      using (List<View_ERP_PaperItemReceipt>.Enumerator enumerator = this.ReceiptList.GetEnumerator())
+      {
+        while (enumerator.MoveNext())
+        {
+          View_ERP_PaperItemReceipt current = enumerator.Current;
+          str1 = str1 + current.get_pkPaperItem().ToString() + "*";
+        }
+      }
+      if (str1.Length > 0)
+        str1 = str1.Remove(str1.Length - 1, 1);
+      DataManager.Repositories.Service.Repository<View_ERP_AccPurchaseInvoice> repository = this.Repository;
+      string str2 = "GetPurchaseInvoiceItems";
+      ServiceOperatorParameter[] operatorParameterArray1 = new ServiceOperatorParameter[1];
+      ServiceOperatorParameter[] operatorParameterArray2 = operatorParameterArray1;
+      int index = 0;
+      ServiceOperatorParameter operatorParameter1 = new ServiceOperatorParameter();
+      operatorParameter1.set_Name("Keys");
+      operatorParameter1.set_Value((object) str1);
+      ServiceOperatorParameter operatorParameter2 = operatorParameter1;
+      operatorParameterArray2[index] = operatorParameter2;
+      ServiceOperatorParameter[] operatorParameterArray3 = operatorParameterArray1;
+      List<View_ERP_AccPurchaseInvoice> list1 = ((IEnumerable<View_ERP_AccPurchaseInvoice>) ((IEnumerable<View_ERP_AccPurchaseInvoice>) ((IEnumerable<View_ERP_AccPurchaseInvoice>) repository.ExcuteServiceOperator<View_ERP_AccPurchaseInvoice>(str2, operatorParameterArray3)).ToList<View_ERP_AccPurchaseInvoice>()).OrderBy<View_ERP_AccPurchaseInvoice, int>((Func<View_ERP_AccPurchaseInvoice, int>) (C => C.get_No()))).ToList<View_ERP_AccPurchaseInvoice>();
+      int num1 = 1;
+      string str3 = " ریال ";
+      this.DataSource = new List<View_ERP_AccPaperItem>();
+      string str4 = " بابت خرید قطعه طی صورتحساب شماره";
+      string empty = string.Empty;
+      string str5 = this.IsInternal ? " تحویل طی رسید خرید داخلی  " : " تحویل طی رسید خرید خارجی  ";
+      using (IEnumerator<IGrouping<\u003C\u003Ef__AnonymousType7<string>, View_ERP_AccPurchaseInvoice>> enumerator1 = ((IEnumerable<View_ERP_AccPurchaseInvoice>) list1).GroupBy(w =>
+      {
+        var data = new{ Invoice = w.get_Invoice() };
+        return data;
+      }).Select<IGrouping<\u003C\u003Ef__AnonymousType7<string>, View_ERP_AccPurchaseInvoice>, IGrouping<\u003C\u003Ef__AnonymousType7<string>, View_ERP_AccPurchaseInvoice>>(DInvoice => DInvoice).GetEnumerator())
+      {
+        while (((IEnumerator) enumerator1).MoveNext())
+        {
+          // ISSUE: object of a compiler-generated type is created
+          // ISSUE: variable of a compiler-generated type
+          FinancialPaper.\u003C\u003Ec__DisplayClass11e cDisplayClass11e = new FinancialPaper.\u003C\u003Ec__DisplayClass11e();
+          // ISSUE: reference to a compiler-generated field
+          cDisplayClass11e.invoiceItem = enumerator1.Current;
+          // ISSUE: object of a compiler-generated type is created
+          // ISSUE: variable of a compiler-generated type
+          FinancialPaper.\u003C\u003Ec__DisplayClass120 cDisplayClass120 = new FinancialPaper.\u003C\u003Ec__DisplayClass120();
+          // ISSUE: reference to a compiler-generated field
+          cDisplayClass120.CS\u0024\u003C\u003E8__locals11f = cDisplayClass11e;
+          // ISSUE: reference to a compiler-generated method
+          IEnumerable<View_ERP_AccPurchaseInvoice> source = ((IEnumerable<View_ERP_AccPurchaseInvoice>) list1).Where<View_ERP_AccPurchaseInvoice>(new Func<View_ERP_AccPurchaseInvoice, bool>(cDisplayClass11e.\u003CBindPayment\u003Eb__109));
+          IEnumerable<IGrouping<\u003C\u003Ef__AnonymousType3<Guid>, View_ERP_AccPurchaseInvoice>> groupings = source.GroupBy(w =>
+          {
+            var data = new
+            {
+              RecieptPaperId = w.get_RecieptPaperId()
+            };
+            return data;
+          }).Select<IGrouping<\u003C\u003Ef__AnonymousType3<Guid>, View_ERP_AccPurchaseInvoice>, IGrouping<\u003C\u003Ef__AnonymousType3<Guid>, View_ERP_AccPurchaseInvoice>>(DReciept => DReciept);
+          // ISSUE: reference to a compiler-generated field
+          cDisplayClass120.FirstItem = new View_ERP_AccPurchaseInvoice();
+          int no;
+          DateTime? nullable1;
+          using (IEnumerator<IGrouping<\u003C\u003Ef__AnonymousType3<Guid>, View_ERP_AccPurchaseInvoice>> enumerator2 = groupings.GetEnumerator())
+          {
+            while (((IEnumerator) enumerator2).MoveNext())
+            {
+              IGrouping<\u003C\u003Ef__AnonymousType3<Guid>, View_ERP_AccPurchaseInvoice> item = enumerator2.Current;
+              // ISSUE: reference to a compiler-generated field
+              cDisplayClass120.FirstItem = source.Where<View_ERP_AccPurchaseInvoice>((Func<View_ERP_AccPurchaseInvoice, bool>) (c => c.get_RecieptPaperId() == item.Key.RecieptPaperId)).FirstOrDefault<View_ERP_AccPurchaseInvoice>();
+              this.AccItem = new View_ERP_AccPaperItem();
+              this.AccItem.set_pkAccPaperItem(Guid.NewGuid());
+              this.AccItem.set_No(num1);
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_ExchangeRate(cDisplayClass120.FirstItem.get_ExchangeRate());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AccountLevel1(cDisplayClass120.FirstItem.get_CreditorAccountLevel1());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AccountLevel2(cDisplayClass120.FirstItem.get_CreditorAccountLevel2());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AccountLevel3(cDisplayClass120.FirstItem.get_CreditorAccountLevel3());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AccountLevel4(cDisplayClass120.FirstItem.get_CreditorAccountLevel4());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AccountLevel6(cDisplayClass120.FirstItem.get_RecieptFullNo());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_FullCode(cDisplayClass120.FirstItem.get_CreditorFullCode());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_ParrentFullCode(cDisplayClass120.FirstItem.get_CreditorFullCode());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_CustomerCode(cDisplayClass120.FirstItem.get_CreditorCustomerCode());
+              View_ERP_AccPaperItem accItem1 = this.AccItem;
+              // ISSUE: reference to a compiler-generated field
+              no = cDisplayClass120.FirstItem.get_No();
+              string str6 = no.ToString();
+              accItem1.set_FollowUpNo(str6);
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_FollowUpDate(cDisplayClass120.FirstItem.get_RecieptPaperDate());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_Currency(cDisplayClass120.FirstItem.get_Currency());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_fkOptionCurrency(cDisplayClass120.FirstItem.get_fkOption_Currency());
+              View_ERP_AccPaperItem accItem2 = this.AccItem;
+              // ISSUE: reference to a compiler-generated field
+              nullable1 = cDisplayClass120.FirstItem.get_RecieptPaperDate();
+              string str7 = DateTimeToString.PersianDate(nullable1.Value, true);
+              accItem2.set_FollowUpPersianDate(str7);
+              View_ERP_AccPaperItem accItem3 = this.AccItem;
+              // ISSUE: reference to a compiler-generated field
+              nullable1 = cDisplayClass120.FirstItem.get_RecieptPaperDate();
+              string str8 = DateTimeToString.PersianDate(nullable1.Value, true);
+              accItem3.set_PersianDate(str8);
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AcountTitle(cDisplayClass120.FirstItem.get_Creditor());
+              List<View_ERP_AccPurchaseInvoice> list2 = source.Where<View_ERP_AccPurchaseInvoice>((Func<View_ERP_AccPurchaseInvoice, bool>) (c => c.get_RecieptPaperId() == item.Key.RecieptPaperId)).ToList<View_ERP_AccPurchaseInvoice>();
+              Decimal num2 = new Decimal(0);
+              Decimal num3 = new Decimal(0);
+              using (List<View_ERP_AccPurchaseInvoice>.Enumerator enumerator3 = list2.GetEnumerator())
+              {
+                while (enumerator3.MoveNext())
+                {
+                  View_ERP_AccPurchaseInvoice current = enumerator3.Current;
+                  num2 += current.get_GrandTotal().Value;
+                  num3 += current.get_TotalValue().Value;
+                }
+              }
+              // ISSUE: reference to a compiler-generated field
+              int? fkOptionCurrency = cDisplayClass120.FirstItem.get_fkOption_Currency();
+              if ((fkOptionCurrency.GetValueOrDefault() != 1246 ? 0 : (fkOptionCurrency.HasValue ? 1 : 0)) != 0)
+                str3 = " درهم ";
+              // ISSUE: reference to a compiler-generated field
+              fkOptionCurrency = cDisplayClass120.FirstItem.get_fkOption_Currency();
+              if ((fkOptionCurrency.GetValueOrDefault() != 1286 ? 0 : (fkOptionCurrency.HasValue ? 1 : 0)) != 0)
+                str3 = " یورو ";
+              // ISSUE: reference to a compiler-generated field
+              fkOptionCurrency = cDisplayClass120.FirstItem.get_fkOption_Currency();
+              if ((fkOptionCurrency.GetValueOrDefault() != 1376 ? 0 : (fkOptionCurrency.HasValue ? 1 : 0)) != 0)
+                str3 = " دلار ";
+              // ISSUE: reference to a compiler-generated field
+              // ISSUE: reference to a compiler-generated field
+              string str9 = "(" + num2.ToString("n2") + str3 + ")" + str4 + "( " + cDisplayClass120.FirstItem.get_Invoice() + " )" + str5 + "( " + (object) cDisplayClass120.FirstItem.get_No() + " ) " + (object) '\x202B';
+              this.AccItem.set_Value(new Decimal?(-num3));
+              View_ERP_AccPaperItem accItem4 = this.AccItem;
+              Decimal? nullable2 = this.AccItem.get_Value();
+              Decimal? nullable3 = nullable2.HasValue ? new Decimal?(-nullable2.GetValueOrDefault()) : new Decimal?();
+              accItem4.set_DeptorValue(nullable3);
+              this.AccItem.set_Price(new Decimal?(num2));
+              this.AccItem.set_Title(str9);
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_fkAccAcount(cDisplayClass120.FirstItem.get_CreditorId());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_fkRelatedPaper(new Guid?(cDisplayClass120.FirstItem.get_RecieptPaperId()));
+              this.DataSource.Add(this.AccItem);
+              ++num1;
+            }
+          }
+          Decimal? nullable4 = source.Sum<View_ERP_AccPurchaseInvoice>((Func<View_ERP_AccPurchaseInvoice, Decimal?>) (c => c.get_TotalValue()));
+          Decimal? nullable5 = source.Sum<View_ERP_AccPurchaseInvoice>((Func<View_ERP_AccPurchaseInvoice, Decimal?>) (c => c.get_GrandTotal()));
+          ParameterExpression parameterExpression1;
+          // ISSUE: method reference
+          // ISSUE: field reference
+          // ISSUE: method reference
+          // ISSUE: method reference
+          new DataManager.Repositories.Service.Repository<ERP_Company>().FirstOrDefault(System.Linq.Expressions.Expression.Lambda<Func<ERP_Company, bool>>((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Equal((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Convert((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) parameterExpression1, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (ERP_Company.get_pkCompany))), typeof (Guid?)), (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Field((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Constant((object) cDisplayClass120), FieldInfo.GetFieldFromHandle(__fieldref (FinancialPaper.\u003C\u003Ec__DisplayClass120.FirstItem))), (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccPurchaseInvoice.get_fkCompany))), false, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (Guid.op_Equality))), new ParameterExpression[1]
+          {
+            parameterExpression1
+          })).get_fkCountry();
+          View_ERP_AccAccount viewErpAccAccount1 = new View_ERP_AccAccount();
+          View_ERP_AccAccount viewErpAccAccount2;
+          if (!this.IsInternal)
+          {
+            ParameterExpression parameterExpression2;
+            // ISSUE: method reference
+            // ISSUE: method reference
+            // ISSUE: method reference
+            // ISSUE: field reference
+            // ISSUE: method reference
+            // ISSUE: method reference
+            viewErpAccAccount2 = ((IQueryable<View_ERP_AccAccount>) ((DataManager.Repositories.Service.Repository) this.Repository).GetAll<View_ERP_AccAccount>((Func<M0, bool>) null)).Where<View_ERP_AccAccount>(System.Linq.Expressions.Expression.Lambda<Func<View_ERP_AccAccount, bool>>((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.AndAlso((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Call((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) parameterExpression2, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccAccount.get_FullCode))), (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (string.StartsWith)), new System.Linq.Expressions.Expression[1]
+            {
+              (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Constant((object) "13-21-31", typeof (string))
+            }), (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Equal((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) parameterExpression2, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccAccount.get_fkRelatedObject))), (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Field((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Constant((object) cDisplayClass120), FieldInfo.GetFieldFromHandle(__fieldref (FinancialPaper.\u003C\u003Ec__DisplayClass120.FirstItem))), (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccPurchaseInvoice.get_fkCompany))), false, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (Guid.op_Equality)))), new ParameterExpression[1]
+            {
+              parameterExpression2
+            })).FirstOrDefault<View_ERP_AccAccount>();
+          }
+          else
+          {
+            ParameterExpression parameterExpression2;
+            // ISSUE: method reference
+            // ISSUE: method reference
+            // ISSUE: method reference
+            // ISSUE: field reference
+            // ISSUE: method reference
+            // ISSUE: method reference
+            viewErpAccAccount2 = ((IQueryable<View_ERP_AccAccount>) ((DataManager.Repositories.Service.Repository) this.Repository).GetAll<View_ERP_AccAccount>((Func<M0, bool>) null)).Where<View_ERP_AccAccount>(System.Linq.Expressions.Expression.Lambda<Func<View_ERP_AccAccount, bool>>((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.AndAlso((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Call((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) parameterExpression2, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccAccount.get_FullCode))), (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (string.StartsWith)), new System.Linq.Expressions.Expression[1]
+            {
+              (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Constant((object) "13-21-32", typeof (string))
+            }), (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Equal((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) parameterExpression2, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccAccount.get_fkRelatedObject))), (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Field((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Constant((object) cDisplayClass120), FieldInfo.GetFieldFromHandle(__fieldref (FinancialPaper.\u003C\u003Ec__DisplayClass120.FirstItem))), (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccPurchaseInvoice.get_fkCompany))), false, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (Guid.op_Equality)))), new ParameterExpression[1]
+            {
+              parameterExpression2
+            })).FirstOrDefault<View_ERP_AccAccount>();
+          }
+          this.AccItem = new View_ERP_AccPaperItem();
+          this.AccItem.set_pkAccPaperItem(Guid.NewGuid());
+          this.AccItem.set_No(num1);
+          // ISSUE: reference to a compiler-generated field
+          this.AccItem.set_ExchangeRate(cDisplayClass120.FirstItem.get_ExchangeRate());
+          if (viewErpAccAccount2 != null)
+          {
+            this.AccItem.set_AccountLevel1(viewErpAccAccount2.get_AccountLevel1());
+            this.AccItem.set_AccountLevel2(viewErpAccAccount2.get_AccountLevel2());
+            this.AccItem.set_AccountLevel3(viewErpAccAccount2.get_AccountLevel3());
+            this.AccItem.set_AccountLevel4(viewErpAccAccount2.get_AccountLevel4());
+            this.AccItem.set_FullCode(viewErpAccAccount2.get_FullCode());
+            this.AccItem.set_ParrentFullCode(viewErpAccAccount2.get_FullCode());
+            this.AccItem.set_CustomerCode(viewErpAccAccount2.get_CustomerCode());
+            this.AccItem.set_AcountTitle(viewErpAccAccount2.get_Title());
+            this.AccItem.set_fkAccAcount(new Guid?(viewErpAccAccount2.get_PkAccAcount()));
+          }
+          this.AccItem.set_Value(nullable4);
+          this.AccItem.set_CreditorValue(nullable4);
+          this.AccItem.set_Price(nullable5);
+          // ISSUE: reference to a compiler-generated field
+          this.AccItem.set_fkOptionCurrency(cDisplayClass120.FirstItem.get_fkOption_Currency());
+          // ISSUE: reference to a compiler-generated field
+          this.AccItem.set_Currency(cDisplayClass120.FirstItem.get_Currency());
+          // ISSUE: reference to a compiler-generated field
+          if (cDisplayClass120.FirstItem.get_Invoice() != null)
+          {
+            // ISSUE: reference to a compiler-generated field
+            this.AccItem.set_FollowUpNo(new string(((IEnumerable<char>) cDisplayClass120.FirstItem.get_Invoice().ToCharArray()).Where<char>((Func<char, bool>) (c => char.IsDigit(c))).ToArray<char>()));
+          }
+          else
+          {
+            View_ERP_AccPaperItem accItem = this.AccItem;
+            // ISSUE: reference to a compiler-generated field
+            no = cDisplayClass120.FirstItem.get_No();
+            string str6 = no.ToString();
+            accItem.set_FollowUpNo(str6);
+          }
+          // ISSUE: reference to a compiler-generated field
+          this.AccItem.set_FollowUpDate(cDisplayClass120.FirstItem.get_InvoiceDate());
+          // ISSUE: reference to a compiler-generated field
+          nullable1 = cDisplayClass120.FirstItem.get_InvoiceDate();
+          if (nullable1.HasValue)
+          {
+            View_ERP_AccPaperItem accItem = this.AccItem;
+            // ISSUE: reference to a compiler-generated field
+            nullable1 = cDisplayClass120.FirstItem.get_InvoiceDate();
+            string str6 = DateTimeToString.PersianDate(nullable1.Value, true);
+            accItem.set_FollowUpPersianDate(str6);
+          }
+          else
+            this.AccItem.set_FollowUpPersianDate(DateTimeToString.PersianDate(DateTime.Now, true));
+          // ISSUE: reference to a compiler-generated field
+          this.AccItem.set_Title("(" + nullable5.Value.ToString("n2") + str3 + ")" + "بابت خرید قطعه طی صورتحساب شماره  " + "( " + cDisplayClass120.FirstItem.get_Invoice() + " )" + (object) '\x202B');
+          this.DataSource.Add(this.AccItem);
+        }
+      }
+      Decimal num4 = ((IEnumerable<View_ERP_AccPaperItem>) this.DataSource).Sum<View_ERP_AccPaperItem>((Func<View_ERP_AccPaperItem, Decimal?>) (c => c.get_DeptorValue())).Value;
+      this.Deptorstr = num4.ToString("n0");
+      num4 = ((IEnumerable<View_ERP_AccPaperItem>) this.DataSource).Sum<View_ERP_AccPaperItem>((Func<View_ERP_AccPaperItem, Decimal?>) (c => c.get_CreditorValue())).Value;
+      this.CredoitorStr = num4.ToString("n0");
+      return (object) null;
+    }
+
+        public object BindPayment()
+    {
+      this.PaperType = 2;
+      string keys = string.Empty;
+      
+        foreach (var item in ReceiptList)
+        {
+          keys = keys + item.pkPaperItem.ToString() + "*";
+        }
+
+
+      if (keys.Length > 0)
+        keys = keys.Remove(keys.Length - 1, 1);
+
+
+
+             //string str2 = rep.ExcuteServiceOperatorSingle<string>("GetPurchaseInvoiceItems",
+             //  new ServiceOperatorParameter() { Name = "Keys", Value = keys });
+
+            IQueryable<View_ERP_AccPurchaseInvoice> ds = Repository.Context.CreateQuery<View_ERP_AccPurchaseInvoice>("GetPurchaseInvoiceItems")
+                .AddQueryOption("Keys", keys);
+
+            List<View_ERP_AccPurchaseInvoice> list1 = ds.ToList();
+            
+            int num1 = 1;
+      string str3 = " ریال ";
+      this.DataSource = new List<View_ERP_AccPaperItem>();
+      string str4 = " بابت خرید قطعه طی صورتحساب شماره";
+      string empty = string.Empty;
+      string str5 = this.IsInternal ? " تحویل طی رسید خرید داخلی  " : " تحویل طی رسید خرید خارجی  ";
+
+
+           var d = list1.GroupBy(w => new {Invoice = w.Invoice}).Select(DInvoice => DInvoice);
+
+
+      using (IEnumerator<IGrouping<\u003C\u003Ef__AnonymousType7<string>, View_ERP_AccPurchaseInvoice>> enumerator1 = ((IEnumerable<View_ERP_AccPurchaseInvoice>) list1).GroupBy(w =>
+      {
+        var data = new{ Invoice = w.get_Invoice() };
+        return data;
+      }).Select<IGrouping<\u003C\u003Ef__AnonymousType7<string>, View_ERP_AccPurchaseInvoice>, IGrouping<\u003C\u003Ef__AnonymousType7<string>, View_ERP_AccPurchaseInvoice>>(DInvoice => DInvoice).GetEnumerator())
+      {
+        while (((IEnumerator) enumerator1).MoveNext())
+        {
+          // ISSUE: object of a compiler-generated type is created
+          // ISSUE: variable of a compiler-generated type
+          FinancialPaper.\u003C\u003Ec__DisplayClass11e cDisplayClass11e = new FinancialPaper.\u003C\u003Ec__DisplayClass11e();
+          // ISSUE: reference to a compiler-generated field
+          cDisplayClass11e.invoiceItem = enumerator1.Current;
+          // ISSUE: object of a compiler-generated type is created
+          // ISSUE: variable of a compiler-generated type
+          FinancialPaper.\u003C\u003Ec__DisplayClass120 cDisplayClass120 = new FinancialPaper.\u003C\u003Ec__DisplayClass120();
+          // ISSUE: reference to a compiler-generated field
+          cDisplayClass120.CS\u0024\u003C\u003E8__locals11f = cDisplayClass11e;
+          // ISSUE: reference to a compiler-generated method
+          IEnumerable<View_ERP_AccPurchaseInvoice> source = ((IEnumerable<View_ERP_AccPurchaseInvoice>) list1).Where<View_ERP_AccPurchaseInvoice>(new Func<View_ERP_AccPurchaseInvoice, bool>(cDisplayClass11e.\u003CBindPayment\u003Eb__109));
+          IEnumerable<IGrouping<\u003C\u003Ef__AnonymousType3<Guid>, View_ERP_AccPurchaseInvoice>> groupings = source.GroupBy(w =>
+          {
+            var data = new
+            {
+              RecieptPaperId = w.get_RecieptPaperId()
+            };
+            return data;
+          }).Select<IGrouping<\u003C\u003Ef__AnonymousType3<Guid>, View_ERP_AccPurchaseInvoice>, IGrouping<\u003C\u003Ef__AnonymousType3<Guid>, View_ERP_AccPurchaseInvoice>>(DReciept => DReciept);
+          // ISSUE: reference to a compiler-generated field
+          cDisplayClass120.FirstItem = new View_ERP_AccPurchaseInvoice();
+          int no;
+          DateTime? nullable1;
+          using (IEnumerator<IGrouping<\u003C\u003Ef__AnonymousType3<Guid>, View_ERP_AccPurchaseInvoice>> enumerator2 = groupings.GetEnumerator())
+          {
+            while (((IEnumerator) enumerator2).MoveNext())
+            {
+              IGrouping<\u003C\u003Ef__AnonymousType3<Guid>, View_ERP_AccPurchaseInvoice> item = enumerator2.Current;
+              // ISSUE: reference to a compiler-generated field
+              cDisplayClass120.FirstItem = source.Where<View_ERP_AccPurchaseInvoice>((Func<View_ERP_AccPurchaseInvoice, bool>) (c => c.get_RecieptPaperId() == item.Key.RecieptPaperId)).FirstOrDefault<View_ERP_AccPurchaseInvoice>();
+              this.AccItem = new View_ERP_AccPaperItem();
+              this.AccItem.set_pkAccPaperItem(Guid.NewGuid());
+              this.AccItem.set_No(num1);
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_ExchangeRate(cDisplayClass120.FirstItem.get_ExchangeRate());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AccountLevel1(cDisplayClass120.FirstItem.get_CreditorAccountLevel1());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AccountLevel2(cDisplayClass120.FirstItem.get_CreditorAccountLevel2());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AccountLevel3(cDisplayClass120.FirstItem.get_CreditorAccountLevel3());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AccountLevel4(cDisplayClass120.FirstItem.get_CreditorAccountLevel4());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AccountLevel6(cDisplayClass120.FirstItem.get_RecieptFullNo());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_FullCode(cDisplayClass120.FirstItem.get_CreditorFullCode());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_ParrentFullCode(cDisplayClass120.FirstItem.get_CreditorFullCode());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_CustomerCode(cDisplayClass120.FirstItem.get_CreditorCustomerCode());
+              View_ERP_AccPaperItem accItem1 = this.AccItem;
+              // ISSUE: reference to a compiler-generated field
+              no = cDisplayClass120.FirstItem.get_No();
+              string str6 = no.ToString();
+              accItem1.set_FollowUpNo(str6);
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_FollowUpDate(cDisplayClass120.FirstItem.get_RecieptPaperDate());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_Currency(cDisplayClass120.FirstItem.get_Currency());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_fkOptionCurrency(cDisplayClass120.FirstItem.get_fkOption_Currency());
+              View_ERP_AccPaperItem accItem2 = this.AccItem;
+              // ISSUE: reference to a compiler-generated field
+              nullable1 = cDisplayClass120.FirstItem.get_RecieptPaperDate();
+              string str7 = DateTimeToString.PersianDate(nullable1.Value, true);
+              accItem2.set_FollowUpPersianDate(str7);
+              View_ERP_AccPaperItem accItem3 = this.AccItem;
+              // ISSUE: reference to a compiler-generated field
+              nullable1 = cDisplayClass120.FirstItem.get_RecieptPaperDate();
+              string str8 = DateTimeToString.PersianDate(nullable1.Value, true);
+              accItem3.set_PersianDate(str8);
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_AcountTitle(cDisplayClass120.FirstItem.get_Creditor());
+              List<View_ERP_AccPurchaseInvoice> list2 = source.Where<View_ERP_AccPurchaseInvoice>((Func<View_ERP_AccPurchaseInvoice, bool>) (c => c.get_RecieptPaperId() == item.Key.RecieptPaperId)).ToList<View_ERP_AccPurchaseInvoice>();
+              Decimal num2 = new Decimal(0);
+              Decimal num3 = new Decimal(0);
+              using (List<View_ERP_AccPurchaseInvoice>.Enumerator enumerator3 = list2.GetEnumerator())
+              {
+                while (enumerator3.MoveNext())
+                {
+                  View_ERP_AccPurchaseInvoice current = enumerator3.Current;
+                  num2 += current.get_GrandTotal().Value;
+                  num3 += current.get_TotalValue().Value;
+                }
+              }
+              // ISSUE: reference to a compiler-generated field
+              int? fkOptionCurrency = cDisplayClass120.FirstItem.get_fkOption_Currency();
+              if ((fkOptionCurrency.GetValueOrDefault() != 1246 ? 0 : (fkOptionCurrency.HasValue ? 1 : 0)) != 0)
+                str3 = " درهم ";
+              // ISSUE: reference to a compiler-generated field
+              fkOptionCurrency = cDisplayClass120.FirstItem.get_fkOption_Currency();
+              if ((fkOptionCurrency.GetValueOrDefault() != 1286 ? 0 : (fkOptionCurrency.HasValue ? 1 : 0)) != 0)
+                str3 = " یورو ";
+              // ISSUE: reference to a compiler-generated field
+              fkOptionCurrency = cDisplayClass120.FirstItem.get_fkOption_Currency();
+              if ((fkOptionCurrency.GetValueOrDefault() != 1376 ? 0 : (fkOptionCurrency.HasValue ? 1 : 0)) != 0)
+                str3 = " دلار ";
+              // ISSUE: reference to a compiler-generated field
+              // ISSUE: reference to a compiler-generated field
+              string str9 = "(" + num2.ToString("n2") + str3 + ")" + str4 + "( " + cDisplayClass120.FirstItem.get_Invoice() + " )" + str5 + "( " + (object) cDisplayClass120.FirstItem.get_No() + " ) " + (object) '\x202B';
+              this.AccItem.set_Value(new Decimal?(-num3));
+              View_ERP_AccPaperItem accItem4 = this.AccItem;
+              Decimal? nullable2 = this.AccItem.get_Value();
+              Decimal? nullable3 = nullable2.HasValue ? new Decimal?(-nullable2.GetValueOrDefault()) : new Decimal?();
+              accItem4.set_DeptorValue(nullable3);
+              this.AccItem.set_Price(new Decimal?(num2));
+              this.AccItem.set_Title(str9);
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_fkAccAcount(cDisplayClass120.FirstItem.get_CreditorId());
+              // ISSUE: reference to a compiler-generated field
+              this.AccItem.set_fkRelatedPaper(new Guid?(cDisplayClass120.FirstItem.get_RecieptPaperId()));
+              this.DataSource.Add(this.AccItem);
+              ++num1;
+            }
+          }
+          Decimal? nullable4 = source.Sum<View_ERP_AccPurchaseInvoice>((Func<View_ERP_AccPurchaseInvoice, Decimal?>) (c => c.get_TotalValue()));
+          Decimal? nullable5 = source.Sum<View_ERP_AccPurchaseInvoice>((Func<View_ERP_AccPurchaseInvoice, Decimal?>) (c => c.get_GrandTotal()));
+          ParameterExpression parameterExpression1;
+          // ISSUE: method reference
+          // ISSUE: field reference
+          // ISSUE: method reference
+          // ISSUE: method reference
+          new DataManager.Repositories.Service.Repository<ERP_Company>().FirstOrDefault(System.Linq.Expressions.Expression.Lambda<Func<ERP_Company, bool>>((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Equal((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Convert((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) parameterExpression1, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (ERP_Company.get_pkCompany))), typeof (Guid?)), (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Field((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Constant((object) cDisplayClass120), FieldInfo.GetFieldFromHandle(__fieldref (FinancialPaper.\u003C\u003Ec__DisplayClass120.FirstItem))), (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccPurchaseInvoice.get_fkCompany))), false, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (Guid.op_Equality))), new ParameterExpression[1]
+          {
+            parameterExpression1
+          })).get_fkCountry();
+          View_ERP_AccAccount viewErpAccAccount1 = new View_ERP_AccAccount();
+          View_ERP_AccAccount viewErpAccAccount2;
+          if (!this.IsInternal)
+          {
+            ParameterExpression parameterExpression2;
+            // ISSUE: method reference
+            // ISSUE: method reference
+            // ISSUE: method reference
+            // ISSUE: field reference
+            // ISSUE: method reference
+            // ISSUE: method reference
+            viewErpAccAccount2 = ((IQueryable<View_ERP_AccAccount>) ((DataManager.Repositories.Service.Repository) this.Repository).GetAll<View_ERP_AccAccount>((Func<M0, bool>) null)).Where<View_ERP_AccAccount>(System.Linq.Expressions.Expression.Lambda<Func<View_ERP_AccAccount, bool>>((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.AndAlso((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Call((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) parameterExpression2, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccAccount.get_FullCode))), (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (string.StartsWith)), new System.Linq.Expressions.Expression[1]
+            {
+              (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Constant((object) "13-21-31", typeof (string))
+            }), (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Equal((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) parameterExpression2, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccAccount.get_fkRelatedObject))), (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Field((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Constant((object) cDisplayClass120), FieldInfo.GetFieldFromHandle(__fieldref (FinancialPaper.\u003C\u003Ec__DisplayClass120.FirstItem))), (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccPurchaseInvoice.get_fkCompany))), false, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (Guid.op_Equality)))), new ParameterExpression[1]
+            {
+              parameterExpression2
+            })).FirstOrDefault<View_ERP_AccAccount>();
+          }
+          else
+          {
+            ParameterExpression parameterExpression2;
+            // ISSUE: method reference
+            // ISSUE: method reference
+            // ISSUE: method reference
+            // ISSUE: field reference
+            // ISSUE: method reference
+            // ISSUE: method reference
+            viewErpAccAccount2 = ((IQueryable<View_ERP_AccAccount>) ((DataManager.Repositories.Service.Repository) this.Repository).GetAll<View_ERP_AccAccount>((Func<M0, bool>) null)).Where<View_ERP_AccAccount>(System.Linq.Expressions.Expression.Lambda<Func<View_ERP_AccAccount, bool>>((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.AndAlso((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Call((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) parameterExpression2, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccAccount.get_FullCode))), (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (string.StartsWith)), new System.Linq.Expressions.Expression[1]
+            {
+              (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Constant((object) "13-21-32", typeof (string))
+            }), (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Equal((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) parameterExpression2, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccAccount.get_fkRelatedObject))), (System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Property((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Field((System.Linq.Expressions.Expression) System.Linq.Expressions.Expression.Constant((object) cDisplayClass120), FieldInfo.GetFieldFromHandle(__fieldref (FinancialPaper.\u003C\u003Ec__DisplayClass120.FirstItem))), (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (View_ERP_AccPurchaseInvoice.get_fkCompany))), false, (MethodInfo) MethodBase.GetMethodFromHandle(__methodref (Guid.op_Equality)))), new ParameterExpression[1]
+            {
+              parameterExpression2
+            })).FirstOrDefault<View_ERP_AccAccount>();
+          }
+          this.AccItem = new View_ERP_AccPaperItem();
+          this.AccItem.set_pkAccPaperItem(Guid.NewGuid());
+          this.AccItem.set_No(num1);
+          // ISSUE: reference to a compiler-generated field
+          this.AccItem.set_ExchangeRate(cDisplayClass120.FirstItem.get_ExchangeRate());
+          if (viewErpAccAccount2 != null)
+          {
+            this.AccItem.set_AccountLevel1(viewErpAccAccount2.get_AccountLevel1());
+            this.AccItem.set_AccountLevel2(viewErpAccAccount2.get_AccountLevel2());
+            this.AccItem.set_AccountLevel3(viewErpAccAccount2.get_AccountLevel3());
+            this.AccItem.set_AccountLevel4(viewErpAccAccount2.get_AccountLevel4());
+            this.AccItem.set_FullCode(viewErpAccAccount2.get_FullCode());
+            this.AccItem.set_ParrentFullCode(viewErpAccAccount2.get_FullCode());
+            this.AccItem.set_CustomerCode(viewErpAccAccount2.get_CustomerCode());
+            this.AccItem.set_AcountTitle(viewErpAccAccount2.get_Title());
+            this.AccItem.set_fkAccAcount(new Guid?(viewErpAccAccount2.get_PkAccAcount()));
+          }
+          this.AccItem.set_Value(nullable4);
+          this.AccItem.set_CreditorValue(nullable4);
+          this.AccItem.set_Price(nullable5);
+          // ISSUE: reference to a compiler-generated field
+          this.AccItem.set_fkOptionCurrency(cDisplayClass120.FirstItem.get_fkOption_Currency());
+          // ISSUE: reference to a compiler-generated field
+          this.AccItem.set_Currency(cDisplayClass120.FirstItem.get_Currency());
+          // ISSUE: reference to a compiler-generated field
+          if (cDisplayClass120.FirstItem.get_Invoice() != null)
+          {
+            // ISSUE: reference to a compiler-generated field
+            this.AccItem.set_FollowUpNo(new string(((IEnumerable<char>) cDisplayClass120.FirstItem.get_Invoice().ToCharArray()).Where<char>((Func<char, bool>) (c => char.IsDigit(c))).ToArray<char>()));
+          }
+          else
+          {
+            View_ERP_AccPaperItem accItem = this.AccItem;
+            // ISSUE: reference to a compiler-generated field
+            no = cDisplayClass120.FirstItem.get_No();
+            string str6 = no.ToString();
+            accItem.set_FollowUpNo(str6);
+          }
+          // ISSUE: reference to a compiler-generated field
+          this.AccItem.set_FollowUpDate(cDisplayClass120.FirstItem.get_InvoiceDate());
+          // ISSUE: reference to a compiler-generated field
+          nullable1 = cDisplayClass120.FirstItem.get_InvoiceDate();
+          if (nullable1.HasValue)
+          {
+            View_ERP_AccPaperItem accItem = this.AccItem;
+            // ISSUE: reference to a compiler-generated field
+            nullable1 = cDisplayClass120.FirstItem.get_InvoiceDate();
+            string str6 = DateTimeToString.PersianDate(nullable1.Value, true);
+            accItem.set_FollowUpPersianDate(str6);
+          }
+          else
+            this.AccItem.set_FollowUpPersianDate(DateTimeToString.PersianDate(DateTime.Now, true));
+          // ISSUE: reference to a compiler-generated field
+          this.AccItem.set_Title("(" + nullable5.Value.ToString("n2") + str3 + ")" + "بابت خرید قطعه طی صورتحساب شماره  " + "( " + cDisplayClass120.FirstItem.get_Invoice() + " )" + (object) '\x202B');
+          this.DataSource.Add(this.AccItem);
+        }
+      }
+      Decimal num4 = ((IEnumerable<View_ERP_AccPaperItem>) this.DataSource).Sum<View_ERP_AccPaperItem>((Func<View_ERP_AccPaperItem, Decimal?>) (c => c.get_DeptorValue())).Value;
+      this.Deptorstr = num4.ToString("n0");
+      num4 = ((IEnumerable<View_ERP_AccPaperItem>) this.DataSource).Sum<View_ERP_AccPaperItem>((Func<View_ERP_AccPaperItem, Decimal?>) (c => c.get_CreditorValue())).Value;
+      this.CredoitorStr = num4.ToString("n0");
+      return (object) null;
+    }
+
+        #endregion
+    }
+}
